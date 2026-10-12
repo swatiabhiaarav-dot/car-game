@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Apex 3D Multiplayer Simulator</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #060913;
+    }
+    #canvas-container {
+      width: 100vw;
+      height: 100vh;
+      display: block;
+    }
+
+    /* HUD Layout */
+    #hud {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 18px 24px;
+      z-index: 10;
+    }
+
+    .glass-card {
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 14px;
+      padding: 12px 18px;
+      color: #fff;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+
+    .top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .title-tag {
+      font-size: 1.1rem;
+      font-weight: 800;
+      letter-spacing: 1px;
+      background: linear-gradient(135deg, #38bdf8, #818cf8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 4px;
+    }
+
+    .status-indicator {
+      font-size: 0.8rem;
+      color: #94a3b8;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #22c55e;
+      box-shadow: 0 0 8px #22c55e;
+    }
+
+    .speedometer {
+      text-align: right;
+      min-width: 130px;
+    }
+
+    .speed-number {
+      font-size: 3.2rem;
+      font-weight: 900;
+      line-height: 0.95;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .speed-unit {
+      font-size: 0.75rem;
+      color: #94a3b8;
+      letter-spacing: 2px;
+      margin-top: 4px;
+    }
+
+    /* Garage & Multiplayer Panels */
+    .controls-deck {
+      pointer-events: auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      margin: 0 auto;
+      max-width: 90vw;
+    }
+
+    .garage-panel {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .field label {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      font-weight: 700;
+      color: #94a3b8;
+    }
+
+    select, input[type="color"], input[type="text"], button {
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #fff;
+      padding: 7px 10px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      outline: none;
+      cursor: pointer;
+    }
+
+    button {
+      background: #2563eb;
+      border-color: #3b82f6;
+      font-weight: 600;
+      transition: background 0.2s;
+    }
+    button:active { background: #1d4ed8; }
+
+    .multiplayer-box {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    /* Mobile On-Screen Touch Controls */
+    #touch-controls {
+      display: none;
+      position: absolute;
+      bottom: 20px;
+      left: 0;
+      right: 0;
+      padding: 0 24px;
+      justify-content: space-between;
+      pointer-events: auto;
+      z-index: 20;
+    }
+
+    .touch-btn {
+      width: 65px;
+      height: 65px;
+      border-radius: 50%;
+      background: rgba(30, 41, 59, 0.7);
+      border: 2px solid rgba(255, 255, 255, 0.2);
+      color: #fff;
+      font-size: 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      touch-action: manipulation;
+    }
+    .touch-btn:active { background: rgba(59, 130, 246, 0.8); }
+
+    @media (max-width: 820px) {
+      #touch-controls { display: flex; }
+      .speed-number { font-size: 2.5rem; }
+    }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+</head>
+<body>
+
+  <canvas id="canvas-container"></canvas>
+
+  <div id="hud">
+    <div class="top-bar">
+      <div class="glass-card">
+        <div class="title-tag">Apex 3D Speed</div>
+        <div class="status-indicator">
+          <span class="dot"></span>
+          <span id="net-status">Offline Free Roam</span>
+        </div>
+      </div>
+
+      <div class="glass-card speedometer">
+        <div class="speed-number" id="speed-meter">0</div>
+        <div class="speed-unit">KM / H</div>
+      </div>
+    </div>
+
+    <!-- Configuration & Multiplayer Deck -->
+    <div class="controls-deck">
+      <div class="glass-card garage-panel">
+        <div class="field">
+          <label>Car Model</label>
+          <select id="car-spec">
+            <option value="sport">GT Sport</option>
+            <option value="muscle">V8 Muscle</option>
+            <option value="hyper">Hypercar</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Body Paint</label>
+          <input type="color" id="paint-color" value="#e11d48">
+        </div>
+
+        <div class="field">
+          <label>Rims</label>
+          <input type="color" id="rim-color" value="#cbd5e1">
+        </div>
+
+        <div class="field" style="justify-content: flex-end;">
+          <button id="copy-room-btn">Copy My Room ID</button>
+        </div>
+      </div>
+
+      <div class="glass-card multiplayer-box">
+        <input type="text" id="join-room-input" placeholder="Paste Friend's Room ID" style="width: 190px;">
+        <button id="join-btn">Connect to Friend</button>
+        <button id="reset-btn" style="background: #475569; border-color: #64748b;">Reset Car</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mobile Controls -->
+  <div id="touch-controls">
+    <div style="display: flex; gap: 14px;">
+      <div class="touch-btn" id="btn-left">◀</div>
+      <div class="touch-btn" id="btn-right">▶</div>
+    </div>
+    <div style="display: flex; gap: 14px;">
+      <div class="touch-btn" id="btn-down" style="background: rgba(225, 29, 72, 0.6);">▼</div>
+      <div class="touch-btn" id="btn-up" style="background: rgba(16, 185, 129, 0.6);">▲</div>
+    </div>
+  </div>
+
+  <script>
+    /* -------------------------------------------------------------
+       1. GRAPHICS & PHOTOREALISTIC ENVIRONMENT
+    ------------------------------------------------------------- */
+    const canvas = document.getElementById('canvas-container');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x93c5fd);
+    scene.fog = new THREE.FogExp2(0x93c5fd, 0.003);
+
+    const camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+    // Dynamic Sun & Environment Light
+    const sun = new THREE.DirectionalLight(0xfffbeb, 2.2);
+    sun.position.set(90, 130, 60);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    const d = 60;
+    sun.shadow.camera.left = -d; sun.shadow.camera.right = d;
+    sun.shadow.camera.top = d; sun.shadow.camera.bottom = -d;
+    sun.shadow.bias = -0.0003;
+    scene.add(sun);
+
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x334155, 0.9));
+
+    // Ground & Asphalt Circuit
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(1400, 1400),
+      new THREE.MeshStandardMaterial({ color: 0x2e7d32, roughness: 0.9 })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    const trackCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(120, 0, 20),
+      new THREE.Vector3(200, 0, 140),
+      new THREE.Vector3(160, 0, 290),
+      new THREE.Vector3(10, 0, 310),
+      new THREE.Vector3(-120, 0, 220),
+      new THREE.Vector3(-180, 0, 70),
+      new THREE.Vector3(-80, 0, -25)
+    ], true);
+
+    const trackWidth = 19;
+    const segments = 400;
+    const trackGeo = new THREE.BufferGeometry();
+    const pos = [], indices = [];
+
+    for (let i = 0; i <= segments; i++) {
+      const t = i / segments;
+      const pt = trackCurve.getPointAt(t);
+      const tangent = trackCurve.getTangentAt(t);
+      const norm = new THREE.Vector3(-tangent.z, 0, tangent.x).normalize();
+      const left = pt.clone().add(norm.clone().multiplyScalar(trackWidth / 2));
+      const right = pt.clone().add(norm.clone().multiplyScalar(-trackWidth / 2));
+      pos.push(left.x, 0.05, left.z, right.x, 0.05, right.z);
+    }
+    for (let i = 0; i < segments; i++) {
+      const b = i * 2;
+      indices.push(b, b + 1, b + 2, b + 1, b + 3, b + 2);
+    }
+    trackGeo.setIndex(indices);
+    trackGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    trackGeo.computeVertexNormals();
+
+    const trackMesh = new THREE.Mesh(trackGeo, new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.85 }));
+    trackMesh.receiveShadow = true;
+    scene.add(trackMesh);
+
+    /* -------------------------------------------------------------
+       2. VEHICLE BUILDER (PBR Materials, Real Rotors & Suspension)
+    ------------------------------------------------------------- */
+    function buildVehicle(type = 'sport', paintHex = '#e11d48', rimHex = '#cbd5e1') {
+      const root = new THREE.Group();
+      const chassis = new THREE.Group();
+      root.add(chassis);
+
+      const paintMat = new THREE.MeshStandardMaterial({
+        color: paintHex,
+        metalness: 0.85,
+        roughness: 0.18
+      });
+      const glassMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.05, metalness: 0.9 });
+      const tireMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.9 });
+      const rimMat = new THREE.MeshStandardMaterial({ color: rimHex, metalness: 0.95, roughness: 0.2 });
+
+      let bw = 2.0, bh = 0.55, bl = 4.3, cw = 1.6, ch = 0.52, cl = 2.2;
+      if (type === 'muscle') { bw = 2.1; bh = 0.65; bl = 4.6; cw = 1.7; ch = 0.5; cl = 2.1; }
+      if (type === 'hyper') { bw = 2.15; bh = 0.45; bl = 4.5; cw = 1.55; ch = 0.45; cl = 2.4; }
+
+      // Lower Tub
+      const body = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bl), paintMat);
+      body.position.y = bh / 2 + 0.32;
+      body.castShadow = true;
+      chassis.add(body);
+
+      // Cabin / Aerodynamic Canopy
+      const cabin = new THREE.Mesh(new THREE.BoxGeometry(cw, ch, cl), glassMat);
+      cabin.position.set(0, body.position.y + bh / 2 + ch / 2, -0.15);
+      cabin.castShadow = true;
+      chassis.add(cabin);
+
+      // Headlights & Tail Lights
+      const hl = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.1, 0.05), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+      const hl2 = hl.clone(); hl.position.set(-0.7, body.position.y, bl / 2 + 0.01); hl2.position.set(0.7, body.position.y, bl / 2 + 0.01);
+      chassis.add(hl); chassis.add(hl2);
+
+      const tl = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.08, 0.05), new THREE.MeshBasicMaterial({ color: 0xef4444 }));
+      const tl2 = tl.clone(); tl.position.set(-0.7, body.position.y, -bl / 2 - 0.01); tl2.position.set(0.7, body.position.y, -bl / 2 - 0.01);
+      chassis.add(tl); chassis.add(tl2);
+
+      // Wheels
+      const wheels = [];
+      const wRadius = 0.42, wWidth = 0.3;
+      const offsets = [
+        { x: -bw / 2 - 0.08, y: wRadius, z: bl * 0.32, isFront: true },
+        { x:  bw / 2 + 0.08, y: wRadius, z: bl * 0.32, isFront: true },
+        { x: -bw / 2 - 0.08, y: wRadius, z: -bl * 0.32, isFront: false },
+        { x:  bw / 2 + 0.08, y: wRadius, z: -bl * 0.32, isFront: false }
+      ];
+
+      offsets.forEach(cfg => {
+        const assembly = new THREE.Group();
+        assembly.position.set(cfg.x, cfg.y, cfg.z);
+
+        const tire = new THREE.Mesh(new THREE.CylinderGeometry(wRadius, wRadius, wWidth, 24), tireMat);
+        tire.rotateZ(Math.PI / 2);
+        tire.castShadow = true;
+        assembly.add(tire);
+
+        const rim = new THREE.Mesh(new THREE.CylinderGeometry(wRadius * 0.65, wRadius * 0.65, wWidth + 0.02, 16), rimMat);
+        rim.rotateZ(Math.PI / 2);
+        assembly.add(rim);
+
+        root.add(assembly);
+        wheels.push({ assembly, tire, isFront: cfg.isFront });
+      });
+
+      return { root, chassis, paintMat, rimMat, wheels };
+    }
+
+    /* -------------------------------------------------------------
+       3. PLAYER INSTANCE & DYNAMICS
+    ------------------------------------------------------------- */
+    let localConfig = { spec: 'sport', color: '#e11d48', rimColor: '#cbd5e1' };
+    let player = buildVehicle(localConfig.spec, localConfig.color, localConfig.rimColor);
+    scene.add(player.root);
+
+    const car = {
+      x: 0, z: 0,
+      speed: 0,
+      angle: 0,
+      steer: 0,
+      accel: 28,
+      topSpeed: 85
+    };
+
+    const keys = { w: false, s: false, a: false, d: false, space: false };
+    window.addEventListener('keydown', e => {
+      if (e.code === 'KeyW' || e.code === 'ArrowUp') keys.w = true;
+      if (e.code === 'KeyS' || e.code === 'ArrowDown') keys.s = true;
+      if (e.code === 'KeyA' || e.code === 'ArrowLeft') keys.a = true;
+      if (e.code === 'KeyD' || e.code === 'ArrowRight') keys.d = true;
+      if (e.code === 'Space') keys.space = true;
+    });
+    window.addEventListener('keyup', e => {
+      if (e.code === 'KeyW' || e.code === 'ArrowUp') keys.w = false;
+      if (e.code === 'KeyS' || e.code === 'ArrowDown') keys.s = false;
+      if (e.code === 'KeyA' || e.code === 'ArrowLeft') keys.a = false;
+      if (e.code === 'KeyD' || e.code === 'ArrowRight') keys.d = false;
+      if (e.code === 'Space') keys.space = false;
+    });
+
+    // Mobile button listeners
+    const setupTouch = (id, key) => {
+      const el = document.getElementById(id);
+      el.addEventListener('touchstart', (e) => { e.preventDefault(); keys[key] = true; });
+      el.addEventListener('touchend', (e) => { e.preventDefault(); keys[key] = false; });
+    };
+    setupTouch('btn-up', 'w');
+    setupTouch('btn-down', 's');
+    setupTouch('btn-left', 'a');
+    setupTouch('btn-right', 'd');
+
+    document.getElementById('reset-btn').addEventListener('click', () => {
+      car.x = 0; car.z = 0; car.speed = 0; car.angle = 0;
+    });
+
+    /* -------------------------------------------------------------
+       4. SERVERLESS MULTIPLAYER (PEERJS)
+    ------------------------------------------------------------- */
+    let peer = new Peer();
+    let peerConnections = [];
+    const remoteCars = {};
+    const netStatus = document.getElementById('net-status');
+
+    peer.on('open', id => {
+      window.myPeerId = id;
+      netStatus.textContent = `Online Solo (Ready)`;
+    });
+
+    // When someone joins you
+    peer.on('connection', conn => {
+      peerConnections.push(conn);
+      bindConnEvents(conn);
+      netStatus.textContent = `Connected with Friend!`;
+    });
+
+    function bindConnEvents(conn) {
+      conn.on('data', data => {
+        if (!remoteCars[conn.peer]) {
+          const model = buildVehicle(data.spec || 'sport', data.color || '#3b82f6', data.rimColor || '#cbd5e1');
+          scene.add(model.root);
+          remoteCars[conn.peer] = { model, targetX: 0, targetZ: 0, targetAngle: 0, speed: 0 };
+        }
+        const rc = remoteCars[conn.peer];
+        rc.targetX = data.x;
+        rc.targetZ = data.z;
+        rc.targetAngle = data.angle;
+        rc.speed = data.speed;
+      });
+
+      conn.on('close', () => {
+        if (remoteCars[conn.peer]) {
+          scene.remove(remoteCars[conn.peer].model.root);
+          delete remoteCars[conn.peer];
+        }
+        netStatus.textContent = `Friend Disconnected`;
+      });
+    }
+
+    document.getElementById('copy-room-btn').addEventListener('click', () => {
+      if (window.myPeerId) {
+        navigator.clipboard.writeText(window.myPeerId);
+        alert('Room ID copied to clipboard! Send this code to your friend:\n\n' + window.myPeerId);
+      }
+    });
+
+    document.getElementById('join-btn').addEventListener('click', () => {
+      const friendId = document.getElementById('join-room-input').value.trim();
+      if (!friendId) return alert('Please paste a Room ID first.');
+      const conn = peer.connect(friendId);
+      peerConnections.push(conn);
+      bindConnEvents(conn);
+      netStatus.textContent = `Joined Friend's Room!`;
+    });
+
+    /* -------------------------------------------------------------
+       5. CUSTOMIZATION HANDLERS
+    ------------------------------------------------------------- */
+    const specSel = document.getElementById('car-spec');
+    const paintPick = document.getElementById('paint-color');
+    const rimPick = document.getElementById('rim-color');
+
+    function rebuildLocalCar() {
+      localConfig.spec = specSel.value;
+      localConfig.color = paintPick.value;
+      localConfig.rimColor = rimPick.value;
+
+      const pos = player.root.position.clone();
+      const rot = player.root.rotation.clone();
+      scene.remove(player.root);
+      player = buildVehicle(localConfig.spec, localConfig.color, localConfig.rimColor);
+      player.root.position.copy(pos);
+      player.root.rotation.copy(rot);
+      scene.add(player.root);
+    }
+
+    specSel.addEventListener('change', rebuildLocalCar);
+    paintPick.addEventListener('input', e => player.paintMat.color.set(e.target.value));
+    rimPick.addEventListener('input', e => player.rimMat.color.set(e.target.value));
+
+    /* -------------------------------------------------------------
+       6. GAME LOOP
+    ------------------------------------------------------------- */
+    const clock = new THREE.Clock();
+    let netTimer = 0;
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = Math.min(clock.getDelta(), 0.1);
+
+      // Driving Physics
+      if (keys.w) car.speed += car.accel * delta;
+      else if (keys.s) car.speed -= (car.accel * 0.6) * delta;
+      else car.speed *= 0.985;
+
+      if (keys.space) car.speed *= 0.93;
+
+      const steerDir = (keys.a ? 1 : 0) - (keys.d ? 1 : 0);
+      car.steer += (steerDir * 0.55 - car.steer) * 8 * delta;
+
+      if (Math.abs(car.speed) > 0.1) {
+        const revFactor = car.speed < 0 ? -1 : 1;
+        car.angle += car.steer * (car.speed / car.topSpeed) * 2.4 * revFactor * delta;
+      }
+
+      car.x += Math.sin(car.angle) * car.speed * delta;
+      car.z += Math.cos(car.angle) * car.speed * delta;
+
+      player.root.position.set(car.x, 0, car.z);
+      player.root.rotation.y = car.angle;
+
+      // Chassis Roll
+      player.chassis.rotation.z = -(car.steer * (car.speed / car.topSpeed) * 0.14);
+
+      // Wheel Rotations
+      player.wheels.forEach(w => {
+        w.tire.rotation.x += (car.speed * delta) / 0.42;
+        if (w.isFront) w.assembly.rotation.y = car.steer * 0.85;
+      });
+
+      document.getElementById('speed-meter').textContent = Math.round(Math.abs(car.speed) * 3.6);
+
+      // Chase Camera Follow
+      const camOffset = new THREE.Vector3(-Math.sin(car.angle) * 8.5, 3.8, -Math.cos(car.angle) * 8.5);
+      camera.position.lerp(player.root.position.clone().add(camOffset), 0.08);
+      camera.lookAt(player.root.position.clone().add(new THREE.Vector3(0, 1.2, 0)));
+
+      // Interpolate Friends' Cars
+      Object.values(remoteCars).forEach(rc => {
+        rc.model.root.position.x += (rc.targetX - rc.model.root.position.x) * 0.2;
+        rc.model.root.position.z += (rc.targetZ - rc.model.root.position.z) * 0.2;
+        rc.model.root.rotation.y += (rc.targetAngle - rc.model.root.rotation.y) * 0.2;
+        rc.model.wheels.forEach(w => w.tire.rotation.x += (rc.speed * delta) / 0.42);
+      });
+
+      // Send Network Packets (25 times per second)
+      netTimer += delta;
+      if (netTimer >= 0.04) {
+        const packet = {
+          x: car.x, z: car.z, angle: car.angle, speed: car.speed,
+          spec: localConfig.spec, color: paintPick.value, rimColor: rimPick.value
+        };
+        peerConnections.forEach(conn => {
+          if (conn.open) conn.send(packet);
+        });
+        netTimer = 0;
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    animate();
+  </script>
+</body>
+</html>
